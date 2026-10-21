@@ -1,11 +1,9 @@
 package main
 
 import (
-	"net/http"
 	"os"
 	"time"
 
-	"cloud.google.com/go/compute/metadata"
 	"github.com/sirupsen/logrus"
 )
 
@@ -14,9 +12,7 @@ var log *logrus.Logger
 
 func init() {
 	initializeLogger()
-	// Use a goroutine to ensure loadDeploymentDetails()'s GCP API
-	// calls don't block non-GCP deployments. See issue #685.
-	go loadDeploymentDetails()
+	loadDeploymentDetails()
 }
 
 func initializeLogger() {
@@ -34,23 +30,16 @@ func initializeLogger() {
 }
 
 func loadDeploymentDetails() {
+	// Shown in the page footer. Values come from the environment (set via the
+	// Kubernetes Downward API / manifest) instead of the GCP metadata server.
 	deploymentDetailsMap = make(map[string]string)
-	var metaServerClient = metadata.NewClient(&http.Client{})
 
 	podHostname, err := os.Hostname()
 	if err != nil {
 		log.Error("Failed to fetch the hostname for the Pod", err)
 	}
-
-	podCluster, err := metaServerClient.InstanceAttributeValue("cluster-name")
-	if err != nil {
-		log.Error("Failed to fetch the name of the cluster in which the pod is running", err)
-	}
-
-	podZone, err := metaServerClient.Zone()
-	if err != nil {
-		log.Error("Failed to fetch the Zone of the node where the pod is scheduled", err)
-	}
+	podCluster := os.Getenv("CLUSTER_NAME")
+	podZone := os.Getenv("ZONE")
 
 	deploymentDetailsMap["HOSTNAME"] = podHostname
 	deploymentDetailsMap["CLUSTERNAME"] = podCluster
