@@ -120,10 +120,6 @@ func run(port string) string {
 	return listener.Addr().String()
 }
 
-func initStats() {
-	// TODO(drewbr) Implement OpenTelemetry stats
-}
-
 func mustMapEnv(target *string, envKey string) {
 	v := os.Getenv(envKey)
 	if v == "" {
