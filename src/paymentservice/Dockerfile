@@ -17,8 +17,6 @@ ARG BUILDPLATFORM=linux/amd64
 
 FROM --platform=$BUILDPLATFORM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS builder
 
-# Some packages (e.g. @google-cloud/profiler) require additional
-# deps for post-install scripts
 RUN apk add --update --no-cache \
     python3 \
     make \
