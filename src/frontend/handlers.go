@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -44,7 +43,6 @@ type platformDetails struct {
 var (
 	frontendMessage  = strings.TrimSpace(os.Getenv("FRONTEND_MESSAGE"))
 	isCymbalBrand    = "true" == strings.ToLower(os.Getenv("CYMBAL_BRANDING"))
-	assistantEnabled = "true" == strings.ToLower(os.Getenv("ENABLE_ASSISTANT"))
 	templates        = template.Must(template.New("").
 				Funcs(template.FuncMap{
 			"renderMoney":        renderMoney,
@@ -391,21 +389,6 @@ func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Request) {
-	currencies, err := fe.getCurrencies(r.Context())
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve currencies"), http.StatusInternalServerError)
-		return
-	}
-
-	if err := templates.ExecuteTemplate(w, "assistant", injectCommonTemplateData(r, map[string]interface{}{
-		"show_currency": false,
-		"currencies":    currencies,
-	})); err != nil {
-		log.Println(err)
-	}
-}
-
 func (fe *frontendServer) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	log.Debug("logging out")
@@ -436,54 +419,6 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Write(jsonData)
-	w.WriteHeader(http.StatusOK)
-}
-
-func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request) {
-	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
-	type Response struct {
-		Message string `json:"message"`
-	}
-
-	type LLMResponse struct {
-		Content string         `json:"content"`
-		Details map[string]any `json:"details"`
-	}
-
-	var response LLMResponse
-
-	url := "http://" + fe.shoppingAssistantSvcAddr
-	req, err := http.NewRequest(http.MethodPost, url, r.Body)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create request"), http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to send request"), http.StatusInternalServerError)
-		return
-	}
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to read response"), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Printf("%+v\n", body)
-	fmt.Printf("%+v\n", res)
-
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to unmarshal body"), http.StatusInternalServerError)
-		return
-	}
-
-	// respond with the same message
-	json.NewEncoder(w).Encode(Response{Message: response.Content})
-
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -547,7 +482,6 @@ func injectCommonTemplateData(r *http.Request, payload map[string]interface{}) m
 		"platform_css":      plat.css,
 		"platform_name":     plat.provider,
 		"is_cymbal_brand":   isCymbalBrand,
-		"assistant_enabled": assistantEnabled,
 		"deploymentDetails": deploymentDetailsMap,
 		"frontendMessage":   frontendMessage,
 		"currentYear":       time.Now().Year(),
