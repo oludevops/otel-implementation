@@ -38,7 +38,6 @@ echo "containers:          ${CONTAINERS:-none}" | paste -sd' '
 echo "images:              ${IMAGES:-none}" | paste -sd' '
 for d in "${SAFE[@]}"; do echo "delete checkout:     $d (fully on GitHub)"; done
 for d in "${SKIP[@]}"; do echo "SKIP checkout:       $d"; done
-echo "kubeconfig:          $( [[ -f $HOME/.kube/config ]] && echo 'move ~/.kube/config to ~/.kube/config.minikube.bak' || echo 'none')"
 echo "======================================"
 
 if [[ "$APPLY" != "--yes" ]]; then
@@ -55,7 +54,6 @@ if [[ -n "$CONTAINERS" ]]; then echo "$CONTAINERS" | xargs -r docker rm -f; fi
 if [[ -n "$IMAGE_IDS" ]]; then echo "$IMAGE_IDS" | xargs -r docker rmi -f; fi
 docker system prune -f
 for d in "${SAFE[@]}"; do rm -rf "$d"; done
-if [[ -f "$HOME/.kube/config" ]]; then mv "$HOME/.kube/config" "$HOME/.kube/config.minikube.bak"; fi
 
 free -h
 df -h /
