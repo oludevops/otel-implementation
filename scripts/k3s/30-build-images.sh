@@ -11,7 +11,8 @@ SERVICES=(adservice cartservice checkoutservice currencyservice emailservice fro
           loadgenerator paymentservice productcatalogservice recommendationservice shippingservice)
 
 # test images left over from the clean-up phase
-docker images --format '{{.Repository}}:{{.Tag}}' | grep '^ob-virgin/' | xargs -r docker rmi
+# (grep finds nothing once they are gone; that is not an error)
+docker images --format '{{.Repository}}:{{.Tag}}' | { grep '^ob-virgin/' || true; } | xargs -r docker rmi
 
 git log --oneline -1
 for svc in "${SERVICES[@]}"; do
@@ -21,4 +22,12 @@ for svc in "${SERVICES[@]}"; do
   docker save "docker.io/ob/$svc:$TAG" | sudo "$K3S" ctr images import -
 done
 
-sudo "$K3S" ctr images ls -q | grep '^docker.io/ob/'
+# every image must now be in k3s's containerd
+in_k3s=$(sudo "$K3S" ctr images ls -q)
+grep ":$TAG$" <<<"$in_k3s" || true
+missing=0
+for svc in "${SERVICES[@]}"; do
+  grep -qx "docker.io/ob/$svc:$TAG" <<<"$in_k3s" || { echo "MISSING in k3s: ob/$svc:$TAG"; missing=$((missing + 1)); }
+done
+echo "images in k3s: $(( ${#SERVICES[@]} - missing )) of ${#SERVICES[@]}"
+(( missing == 0 ))

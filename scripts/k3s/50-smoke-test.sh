@@ -16,15 +16,25 @@ curl -fsS -c "$JAR" -b "$JAR" -o /dev/null -w 'product   %{http_code} %{time_tot
 # 2. add to cart, then the cart page must list the item
 curl -fsS -c "$JAR" -b "$JAR" -o /dev/null -w 'add-cart  %{http_code}\n' \
   -d product_id=OLJCESPC7Z -d quantity=2 "$URL/cart"
-curl -fsS -c "$JAR" -b "$JAR" "$URL/cart" | grep -q 'OLJCESPC7Z' && echo "cart      contains OLJCESPC7Z"
+# (pages are captured first: grep -q exiting early would break the pipe under pipefail)
+page=$(curl -fsS -c "$JAR" -b "$JAR" "$URL/cart")
+if grep -q 'OLJCESPC7Z' <<<"$page"; then
+  echo "cart      contains OLJCESPC7Z"
+else
+  echo "FAIL: cart page does not list OLJCESPC7Z"; exit 1
+fi
 
 # 3. checkout must show the confirmation page
-curl -fsS -c "$JAR" -b "$JAR" "$URL/cart/checkout" \
+page=$(curl -fsS -c "$JAR" -b "$JAR" "$URL/cart/checkout" \
   -d email=someone@example.com -d street_address='1600 Amphitheatre Parkway' -d zip_code=94043 \
   -d city='Mountain View' -d state=CA -d country='United States' \
   -d credit_card_number=4432801561520454 -d credit_card_expiration_month=1 \
-  -d credit_card_expiration_year=$(( $(date +%Y) + 1 )) -d credit_card_cvv=672 \
-  | grep -q 'Your order is complete' && echo "checkout  order complete"
+  -d credit_card_expiration_year=$(( $(date +%Y) + 1 )) -d credit_card_cvv=672)
+if grep -q 'Your order is complete' <<<"$page"; then
+  echo "checkout  order complete"
+else
+  echo "FAIL: checkout did not show the order confirmation"; exit 1
+fi
 
 # 4. cluster health: no restarts, load generator running
 kubectl -n "$NS" get pods -o custom-columns=POD:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount
