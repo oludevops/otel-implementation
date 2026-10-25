@@ -1,0 +1,43 @@
+# Online Boutique on the single-node k3s cluster on soaring.
+# Uses the shared base in kubernetes-manifests/ and only changes what k3s needs:
+# namespace, locally built image names, and frontend display settings.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: online-boutique
+
+resources:
+  - namespace.yaml
+  - ../../kubernetes-manifests
+
+# Images built by scripts/k3s/30-build-images.sh and imported into k3s containerd.
+# A non-"latest" tag gives imagePullPolicy IfNotPresent, so k3s uses the local copies.
+images:
+  - { name: adservice,             newName: ob/adservice,             newTag: virgin }
+  - { name: cartservice,           newName: ob/cartservice,           newTag: virgin }
+  - { name: checkoutservice,       newName: ob/checkoutservice,       newTag: virgin }
+  - { name: currencyservice,       newName: ob/currencyservice,       newTag: virgin }
+  - { name: emailservice,          newName: ob/emailservice,          newTag: virgin }
+  - { name: frontend,              newName: ob/frontend,              newTag: virgin }
+  - { name: loadgenerator,         newName: ob/loadgenerator,         newTag: virgin }
+  - { name: paymentservice,        newName: ob/paymentservice,        newTag: virgin }
+  - { name: productcatalogservice, newName: ob/productcatalogservice, newTag: virgin }
+  - { name: recommendationservice, newName: ob/recommendationservice, newTag: virgin }
+  - { name: shippingservice,       newName: ob/shippingservice,       newTag: virgin }
+
+patches:
+  # Platform banner and footer details (read from env since the GCP metadata lookup was removed)
+  - target: { kind: Deployment, name: frontend }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        template:
+          spec:
+            containers:
+              - name: server
+                env:
+                  - { name: ENV_PLATFORM, value: onprem }
+                  - { name: CLUSTER_NAME, value: soaring-k3s }
+                  - { name: ZONE, value: lab }
