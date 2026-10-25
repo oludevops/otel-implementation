@@ -9,6 +9,8 @@
 #
 # Uses OneAgent's own documented uninstaller, which removes the systemd unit,
 # /opt/dynatrace and the /etc/ld.so.preload entry that injects the agent.
+# An operator-deployed agent has no uninstaller; then the script only verifies it is gone
+# and removes leftover empty directories.
 set -euo pipefail
 
 APPLY=${1:-}
@@ -26,7 +28,7 @@ sudo "$CTL" --version || true
 sudo "$CTL" --get-host-name --get-host-group --get-server || true
 echo "--- /etc/ld.so.preload:"; cat /etc/ld.so.preload 2>/dev/null || echo "(none)"
 echo "--- running processes with the agent loaded (count):"
-sudo grep -l 'liboneagentproc' /proc/[0-9]*/maps 2>/dev/null | wc -l || true
+sudo sh -c 'grep -l liboneagentproc /proc/[0-9]*/maps 2>/dev/null | wc -l' || true
 echo "==============================================="
 
 if [[ "$APPLY" != "--yes" ]]; then
@@ -34,7 +36,25 @@ if [[ "$APPLY" != "--yes" ]]; then
   exit 0
 fi
 
-sudo "$UNINSTALLER"
+if [[ -x "$UNINSTALLER" ]]; then
+  # standard (installer-based) OneAgent: use its own uninstaller
+  sudo "$UNINSTALLER"
+else
+  # An agent deployed by the Dynatrace Operator has no uninstaller: the operator's agent pod
+  # removes it from the host when the pod stops (done here when 15-remove-cluster-leftovers
+  # deleted the dynatrace namespace). Only proceed if its service and injection hook are gone.
+  echo "No uninstaller at $UNINSTALLER: operator-deployed agent, removed by the operator on teardown"
+  if systemctl cat oneagent >/dev/null 2>&1 || grep -qi dynatrace /etc/ld.so.preload 2>/dev/null; then
+    echo "ERROR: oneagent service or ld.so.preload hook still present; not removing anything"
+    exit 1
+  fi
+  # remove only leftover EMPTY directories; any file left in /opt/dynatrace stops this
+  sudo find /opt/dynatrace -depth -type d -empty -delete
+  if [[ -e /opt/dynatrace ]]; then
+    echo "ERROR: /opt/dynatrace still contains files:"; sudo find /opt/dynatrace | head -20
+    exit 1
+  fi
+fi
 
 # verify
 if [[ -d "$AGENT_DIR" ]]; then echo "WARNING: $AGENT_DIR still exists"; else echo "removed: $AGENT_DIR"; fi
@@ -43,4 +63,4 @@ if grep -qi dynatrace /etc/ld.so.preload 2>/dev/null; then echo "WARNING: /etc/l
 
 # Processes started before the uninstall keep the agent loaded until they restart.
 echo "--- processes still holding the agent in memory (restart or reboot clears them):"
-sudo grep -l 'liboneagentproc' /proc/[0-9]*/maps 2>/dev/null | wc -l || true
+sudo sh -c 'grep -l liboneagentproc /proc/[0-9]*/maps 2>/dev/null | wc -l' || true
