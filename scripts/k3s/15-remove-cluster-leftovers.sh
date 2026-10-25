@@ -94,8 +94,8 @@ fi
 # Anything Dynatrace left cluster-wide, matched by name. A webhook left behind without its
 # service could block pod creation in every namespace, so none may survive.
 kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration,clusterrole,clusterrolebinding,csidriver \
-  -o name | grep -i dynatrace | xargs -r kubectl delete
-kubectl get crd -o name | grep 'dynatrace\.com$' | xargs -r kubectl delete
+  -o name | { grep -i dynatrace || true; } | xargs -r kubectl delete
+kubectl get crd -o name | { grep 'dynatrace\.com$' || true; } | xargs -r kubectl delete
 delete_ns "$DT_NS"
 
 # 4. our pods were created while the Dynatrace webhook was active: recreate them clean
