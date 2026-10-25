@@ -29,6 +29,8 @@ done < <(find "$HOME" -maxdepth 4 -type d -name .git -not -path '*/otel-implemen
 # 2. containers and images
 CONTAINERS=$(docker ps -a --format '{{.Names}}' | grep -Ei "^minikube$|$NAME_PATTERN" || true)
 IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -Ei "$NAME_PATTERN|kicbase|gcr.io/k8s-minikube" || true)
+# remove by image ID: untagged images show as "<none>", which docker rmi rejects as a name
+IMAGE_IDS=$(docker images --format '{{.ID}} {{.Repository}}' | grep -Ei "$NAME_PATTERN|kicbase|gcr.io/k8s-minikube" | awk '{print $1}' | sort -u || true)
 
 echo "================ PLAN ================"
 echo "minikube:            $(command -v minikube >/dev/null && echo 'delete all profiles (--purge), remove binary and ~/.minikube' || echo 'not installed')"
@@ -50,7 +52,7 @@ if command -v minikube >/dev/null; then
 fi
 rm -rf "$HOME/.minikube"
 if [[ -n "$CONTAINERS" ]]; then echo "$CONTAINERS" | xargs -r docker rm -f; fi
-if [[ -n "$IMAGES" ]]; then echo "$IMAGES" | xargs -r docker rmi -f; fi
+if [[ -n "$IMAGE_IDS" ]]; then echo "$IMAGE_IDS" | xargs -r docker rmi -f; fi
 docker system prune -f
 for d in "${SAFE[@]}"; do rm -rf "$d"; done
 if [[ -f "$HOME/.kube/config" ]]; then mv "$HOME/.kube/config" "$HOME/.kube/config.minikube.bak"; fi

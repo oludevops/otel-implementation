@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 TAG=virgin
+# sudo on CentOS/RHEL does not search /usr/local/bin, so use the full path
+K3S=$(command -v k3s)
 SERVICES=(adservice cartservice checkoutservice currencyservice emailservice frontend
           loadgenerator paymentservice productcatalogservice recommendationservice shippingservice)
 
@@ -16,7 +18,7 @@ for svc in "${SERVICES[@]}"; do
   ctx="src/$svc"
   [[ "$svc" == cartservice ]] && ctx="src/cartservice/src"
   docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" -t "ob/$svc:$TAG" "$ctx"
-  docker save "docker.io/ob/$svc:$TAG" | sudo k3s ctr images import -
+  docker save "docker.io/ob/$svc:$TAG" | sudo "$K3S" ctr images import -
 done
 
-sudo k3s ctr images ls -q | grep '^docker.io/ob/'
+sudo "$K3S" ctr images ls -q | grep '^docker.io/ob/'

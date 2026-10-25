@@ -12,6 +12,16 @@ K3S_VERSION=${K3S_VERSION:-}   # empty = current stable channel
 IFACE=$(ip -o -4 addr show | awk -v ip="$NODE_IP" '$4 ~ "^"ip"/" {print $2}')
 [[ -n "$IFACE" ]] || { echo "No interface has $NODE_IP; set NODE_IP=..."; exit 1; }
 
+# Refuse to install over an existing cluster that still runs workloads, unless told to.
+if systemctl is-active --quiet k3s && [[ "${1:-}" != "--allow-existing" ]]; then
+  others=$(sudo "$(command -v k3s)" kubectl get ns -o name | grep -vE 'namespace/(default|kube-system|kube-public|kube-node-lease|online-boutique)$' || true)
+  if [[ -n "$others" ]]; then
+    echo "k3s is already running here with these namespaces:"; echo "$others"
+    echo "Remove them first, or re-run with --allow-existing to upgrade k3s in place."
+    exit 1
+  fi
+fi
+
 # firewalld: API server, ServiceLB port 80, and trust pod/service CIDRs
 if systemctl is-active --quiet firewalld; then
   sudo firewall-cmd --permanent --add-port=6443/tcp
