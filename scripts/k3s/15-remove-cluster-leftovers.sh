@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Removes what earlier labs left inside the k3s cluster on soaring:
-#   - pods stuck on the deleted node "bonaventure"
+#   - pods stuck "Terminating" for over 10 minutes (left over from the deleted node
+#     "bonaventure" and old k3s restarts; their containers no longer exist)
 #   - the ClientRepAssist app (namespace callcenter, including its volumes)
 #   - the Dynatrace Operator and DynaKube (so the baseline app is not auto-instrumented)
 #
@@ -14,17 +15,42 @@ set -euo pipefail
 export KUBECONFIG=${KUBECONFIG:-$HOME/.kube/config}
 
 APPLY=${1:-}
-DEAD_NODE=bonaventure
 APP_NS=callcenter
 DT_NS=dynatrace
+STUCK_MINUTES=10
+
+# Pods whose deletion was requested more than STUCK_MINUTES ago: "namespace name since"
+stuck_pods() {
+  local cutoff
+  cutoff=$(date -d "-$STUCK_MINUTES min" +%s)
+  kubectl get pods -A -o go-template='{{range .items}}{{if .metadata.deletionTimestamp}}{{.metadata.namespace}} {{.metadata.name}} {{.metadata.deletionTimestamp}}{{"\n"}}{{end}}{{end}}' \
+    | while read -r ns name since; do
+        if (( $(date -d "$since" +%s) < cutoff )); then echo "$ns $name $since"; fi
+      done
+}
+
+# Delete a namespace; if it does not finish, force-remove its remaining pods and wait again.
+delete_ns() {
+  local ns=$1
+  kubectl get ns "$ns" >/dev/null 2>&1 || return 0
+  kubectl delete namespace "$ns" --wait=false
+  kubectl wait --for=delete "namespace/$ns" --timeout=120s && return 0
+  echo "namespace $ns still terminating; force-removing its remaining pods"
+  kubectl -n "$ns" delete pod --all --force --grace-period=0 || true
+  kubectl wait --for=delete "namespace/$ns" --timeout=180s && return 0
+  echo "namespace $ns is still blocked by:"
+  kubectl get ns "$ns" -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
+  return 1
+}
 
 echo "================ PLAN ================"
-echo "--- pods bound to deleted node $DEAD_NODE (force-removed):"
-kubectl get pods -A --field-selector "spec.nodeName=$DEAD_NODE" --no-headers 2>/dev/null || true
+echo "--- pods stuck Terminating for over $STUCK_MINUTES min (force-removed): namespace, pod, since"
+stuck_pods
 
 echo "--- namespace $APP_NS (deleted with everything in it):"
 if kubectl get ns "$APP_NS" >/dev/null 2>&1; then
-  kubectl -n "$APP_NS" get deploy,statefulset,svc,pvc --no-headers
+  kubectl get ns "$APP_NS" -o jsonpath='status: {.status.phase}{"\n"}{range .status.conditions[*]}  {.type}: {.message}{"\n"}{end}'
+  kubectl -n "$APP_NS" get deploy,statefulset,pod,svc,pvc --no-headers 2>/dev/null || true
 else echo "not present"; fi
 
 echo "--- Dynatrace:"
@@ -48,15 +74,11 @@ if [[ "$APPLY" != "--yes" ]]; then
   exit 0
 fi
 
-# 1. ghost pods from the deleted node (their node is gone, so force removal is safe)
-kubectl get pods -A --field-selector "spec.nodeName=$DEAD_NODE" --no-headers \
-  -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null \
-  | while read -r ns name; do kubectl -n "$ns" delete pod "$name" --force --grace-period=0; done
+# 1. pods stuck Terminating (containers already gone, so force removal is safe)
+stuck_pods | while read -r ns name _; do kubectl -n "$ns" delete pod "$name" --force --grace-period=0; done
 
 # 2. ClientRepAssist
-if kubectl get ns "$APP_NS" >/dev/null 2>&1; then
-  kubectl delete namespace "$APP_NS" --timeout=300s
-fi
+delete_ns "$APP_NS"
 
 # 3. Dynatrace, in the documented order
 if kubectl get crd dynakubes.dynatrace.com >/dev/null 2>&1; then
@@ -74,9 +96,7 @@ fi
 kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration,clusterrole,clusterrolebinding,csidriver \
   -o name | grep -i dynatrace | xargs -r kubectl delete
 kubectl get crd -o name | grep 'dynatrace\.com$' | xargs -r kubectl delete
-if kubectl get ns "$DT_NS" >/dev/null 2>&1; then
-  kubectl delete namespace "$DT_NS" --timeout=300s
-fi
+delete_ns "$DT_NS"
 
 # 4. our pods were created while the Dynatrace webhook was active: recreate them clean
 if kubectl get ns online-boutique >/dev/null 2>&1; then
@@ -86,4 +106,4 @@ fi
 # 5. result
 kubectl get ns
 kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration -o name
-kubectl get pods -A --field-selector "spec.nodeName=$DEAD_NODE" --no-headers 2>/dev/null || true
+echo "--- still stuck:"; stuck_pods
